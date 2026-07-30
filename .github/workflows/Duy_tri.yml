@@ -1,0 +1,85 @@
+name: Duy_tri
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: 
+
+jobs:
+  update-database:
+    runs-on: ubuntu-latest
+    env:
+      # Fix cảnh báo Node.js theo yêu cầu của GitHub 2026
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24' # Cập nhật lên bản mới nhất để tránh warning
+
+      - name: Install Supabase Client
+        run: npm install @supabase/supabase-js
+
+      - name: Chay script cap nhat
+        env:
+          DUYTRI_SUPABASE_URL: ${{ secrets.DUYTRI_SUPABASE_URL_Duphong }}
+          DUYTRI_SUPABASE_KEY: ${{ secrets.DUYTRI_SUPABASE_KEY_Duphong }}
+        run: |
+          cat << 'EOF' > update_script.js
+          const { createClient } = require('@supabase/supabase-js');
+
+          const supabaseUrl = process.env.DUYTRI_SUPABASE_URL;
+          const supabaseKey = process.env.DUYTRI_SUPABASE_KEY;
+
+          if (!supabaseUrl || !supabaseKey) {
+            console.error('LỖI: Thiếu biến môi trường (Secrets). Hãy kiểm tra lại Repo Settings.');
+            process.exit(1);
+          }
+
+          const supabase = createClient(supabaseUrl, supabaseKey);
+
+          async function main() {
+            console.log('--- Đang kết nối Supabase ---');
+            try {
+              const { data, error: fetchError } = await supabase
+                .from('duytricsdl')
+                .select('*')
+                .limit(1);
+
+              if (fetchError) {
+                console.error('LỖI TRUY VẤN:', fetchError.message);
+                console.error('Chi tiết:', fetchError);
+                process.exit(1);
+              }
+
+              if (!data || data.length === 0) {
+                console.log('Bảng trống, đang tạo dòng mới...');
+                const { error: insertError } = await supabase
+                  .from('duytricsdl')
+                  .insert([{ so: 1 }]);
+                
+                if (insertError) throw insertError;
+                console.log('Khởi tạo thành công.');
+              } else {
+                const record = data[0];
+                const newSo = (parseInt(record.so) || 0) + 1;
+                
+                const { error: updateError } = await supabase
+                  .from('duytricsdl')
+                  .update({ so: newSo })
+                  .eq('id', record.id);
+
+                if (updateError) throw updateError;
+                console.log('Cập nhật thành công! Giá trị mới:', newSo);
+              }
+            } catch (err) {
+              console.error('LỖI HỆ THỐNG:', err.message);
+              process.exit(1);
+            }
+          }
+
+          main();
+          EOF
+          node update_script.js
